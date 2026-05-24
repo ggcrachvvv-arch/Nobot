@@ -1,45 +1,47 @@
-import os
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Mini App</title>
 
-# Токен бота
-TOKEN = "ТВОЙ_ТОКЕН"
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-# Ссылка на GitHub Pages
-WEBAPP_URL = "https://ТВОЙ_ЛОГИН.github.io/НАЗВАНИЕ_РЕПОЗИТОРИЯ/"
+    <style>
+        body {
+            background: #121212;
+            color: white;
+            font-family: Arial;
+            text-align: center;
+            padding-top: 100px;
+        }
 
-# Создание бота
-bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
+        button {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
 
-# Команда /start
-@dp.message_handler(commands=["start"])
-async def start(message: types.Message):
+    <h1>Мой Telegram Mini App 🚀</h1>
 
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    <button onclick="sendData()">
+        Отправить данные
+    </button>
 
-    button = KeyboardButton(
-        text="🎮 Открыть игру",
-        web_app=WebAppInfo(url=WEBAPP_URL)
-    )
+    <script>
+        const tg = window.Telegram.WebApp;
 
-    keyboard.add(button)
+        tg.expand();
 
-    await message.answer(
-        f"Привет, {message.from_user.first_name}! 👋\n"
-        "Добро пожаловать в Telegram Mini App!",
-        reply_markup=keyboard
-    )
+        function sendData() {
+            tg.sendData("Привет из Mini App!");
+        }
+    </script>
 
-# Получение данных из Mini App
-@dp.message_handler(content_types=types.ContentType.WEB_APP_DATA)
-async def webapp(message: types.Message):
-
-    await message.answer(
-        f"📨 Получены данные:\n{message.web_app_data.data}"
-    )
-
-# Запуск
-if __name__ == "__main__":
-    print("Бот запущен")
-    executor.start_polling(dp)
+</body>
+</html>
