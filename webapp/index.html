@@ -21,15 +21,16 @@
             border: none;
             border-radius: 10px;
             font-size: 18px;
+            cursor: pointer;
         }
     </style>
 </head>
 <body>
 
-    <h1>Мой Telegram Mini App</h1>
+    <h1>Мой Telegram Mini App 🚀</h1>
 
-    <button onclick="showAlert()">
-        Нажми меня
+    <button onclick="sendData()">
+        Отправить данные
     </button>
 
     <script>
@@ -37,8 +38,8 @@
 
         tg.expand();
 
-        function showAlert() {
-            alert("Mini App работает!");
+        function sendData() {
+            tg.sendData("Привет из Mini App!");
         }
     </script>
 
