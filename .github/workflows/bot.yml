@@ -2,7 +2,7 @@ name: Run Secretary Bot
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -20,5 +21,5 @@ jobs:
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          YOUR_USER_ID: ${{ secrets.YOUR_USER_ID }}
+          YOUR_USER_ID: ${{ secrets.USER_ID }}
         run: python bot.py
