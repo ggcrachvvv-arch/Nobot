@@ -1,13 +1,14 @@
 import os
 import sqlite3
 import logging
+import time
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 PASSWORD = "86532"
-GITHUB_PAGES_URL = "https://ТВОЙ_АККАУНТ.github.io/ТВОЙ_РЕПОЗИТОРИЙ/index.html"
+GITHUB_PAGES_URL = f"https://ggcrachvvv-arch.github.io/Nobot/index.html?v={int(time.time())}"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -59,24 +60,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [[InlineKeyboardButton("🚀 Открыть DAsistent", web_app=WebAppInfo(url=GITHUB_PAGES_URL))]]
     await update.message.reply_text(
-        f"✨ Привет, {user.first_name}!\n\nНажми на кнопку, чтобы открыть мини-приложение и активировать бота.",
+        f"✨ Привет, {user.first_name}!\n\nНажми на кнопку, чтобы открыть мини-приложение.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = update.message.web_app_data.data
     user_id = update.message.from_user.id
-    
-    if data == "start":
-        # Запрашиваем пароль
-        keyboard = [
-            [InlineKeyboardButton("7", callback_data="7"), InlineKeyboardButton("8", callback_data="8"), InlineKeyboardButton("9", callback_data="9")],
-            [InlineKeyboardButton("4", callback_data="4"), InlineKeyboardButton("5", callback_data="5"), InlineKeyboardButton("6", callback_data="6")],
-            [InlineKeyboardButton("1", callback_data="1"), InlineKeyboardButton("2", callback_data="2"), InlineKeyboardButton("3", callback_data="3")],
-            [InlineKeyboardButton("0", callback_data="0"), InlineKeyboardButton("✅", callback_data="submit"), InlineKeyboardButton("🗑", callback_data="clear")]
-        ]
-        context.user_data['pwd'] = ""
-        await update.message.reply_text("🔐 Введите пароль для активации:", reply_markup=InlineKeyboardMarkup(keyboard))
+    # Запрашиваем пароль
+    keyboard = [
+        [InlineKeyboardButton("7", callback_data="7"), InlineKeyboardButton("8", callback_data="8"), InlineKeyboardButton("9", callback_data="9")],
+        [InlineKeyboardButton("4", callback_data="4"), InlineKeyboardButton("5", callback_data="5"), InlineKeyboardButton("6", callback_data="6")],
+        [InlineKeyboardButton("1", callback_data="1"), InlineKeyboardButton("2", callback_data="2"), InlineKeyboardButton("3", callback_data="3")],
+        [InlineKeyboardButton("0", callback_data="0"), InlineKeyboardButton("✅", callback_data="submit"), InlineKeyboardButton("🗑", callback_data="clear")]
+    ]
+    context.user_data['pwd'] = ""
+    await update.message.reply_text("🔐 Введите пароль для активации:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -104,7 +102,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uid = update.message.from_user.id
         if is_authorized(uid):
             save_message(update.message, uid)
-            logging.info(f"Сохранено сообщение от {uid}")
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not hasattr(update, 'deleted_business_messages') or not update.deleted_business_messages:
