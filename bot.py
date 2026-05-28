@@ -1,47 +1,25 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Mini App</title>
+import os
+import logging
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+YOUR_USER_ID = int(os.environ.get("YOUR_USER_ID"))
 
-    <style>
-        body {
-            background: #121212;
-            color: white;
-            font-family: Arial;
-            text-align: center;
-            padding-top: 100px;
-        }
+logging.basicConfig(level=logging.INFO)
 
-        button {
-            padding: 15px 30px;
-            border: none;
-            border-radius: 10px;
-            font-size: 18px;
-            cursor: pointer;
-        }
-    </style>
-</head>
-<body>
+async def handle_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.deleted_business_messages:
+        for msg in update.deleted_business_messages.messages:
+            text = f"❌ Удалено сообщение\nОт: {msg.chat.first_name}\n"
+            text += f"Текст: {msg.text}" if msg.text else "Фото или медиа"
+            await context.bot.send_message(chat_id=YOUR_USER_ID, text=text)
 
-    <h1>Мой Telegram Mini App 🚀</h1>
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.ALL, handle_update))
+    port = int(os.environ.get("PORT", 8080))
+    app.run_webhook(listen="0.0.0.0", port=port, webhook_url=None)
 
-    <button onclick="sendData()">
-        Отправить данные
-    </button>
-
-    <script>
-        const tg = window.Telegram.WebApp;
-
-        tg.expand();
-
-        function sendData() {
-            tg.sendData("Привет из Mini App!");
-        }
-    </script>
-
-</body>
-</html>
+if __name__ == "__main__":
+    main()
