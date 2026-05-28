@@ -1,4 +1,4 @@
-name: Run Bot
+name: DAsistent Bot
 
 on:
   schedule:
@@ -13,9 +13,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
+      - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Start bot
+      - name: Run DAsistent
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: python bot.py
