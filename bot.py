@@ -9,7 +9,8 @@ YOUR_USER_ID = int(os.environ.get("YOUR_USER_ID", 0))
 logging.basicConfig(level=logging.INFO)
 
 async def handle_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.deleted_business_messages:
+    # Проверяем, есть ли атрибут deleted_business_messages (версия PTB)
+    if hasattr(update, 'deleted_business_messages') and update.deleted_business_messages:
         for msg in update.deleted_business_messages.messages:
             chat_name = msg.chat.first_name or msg.chat.title or "Неизвестный чат"
             if msg.text:
@@ -21,6 +22,10 @@ async def handle_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await context.bot.send_message(chat_id=YOUR_USER_ID, text=text)
             logging.info(f"Удаление отправлено: {msg.id}")
+        return
+    
+    # Для отладки: выводим тип получаемого update
+    logging.info(f"Получен update типа: {type(update)}")
 
 def main():
     if not BOT_TOKEN:
@@ -34,7 +39,7 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, handle_update))
     
     logging.info("Бот запущен. Ожидание удалённых сообщений...")
-    app.run_polling()  # ← заменил run_webhook на run_polling
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
