@@ -1,21 +1,244 @@
-name: DAsistent Bot
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>DAsistent</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-on:
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+        body {
+            background: var(--tg-theme-bg-color, #0a0a0f);
+            color: var(--tg-theme-text-color, #ffffff);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            min-height: 100vh;
+        }
 
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run DAsistent
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        run: python bot.py
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        /* Хедер */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #6ee7ff, #a855f7);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .logo span {
+            font-size: 20px;
+        }
+
+        /* Карточки тарифов */
+        .plans {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 32px;
+            flex-wrap: wrap;
+        }
+
+        .plan {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 24px;
+            padding: 20px 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .plan.selected {
+            border-color: #a855f7;
+            background: rgba(168, 85, 247, 0.1);
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+        }
+
+        .plan-name {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .plan-price {
+            font-size: 24px;
+            font-weight: 800;
+            color: #fbbf24;
+        }
+
+        .plan-price small {
+            font-size: 12px;
+        }
+
+        /* Кнопки */
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, #6ee7ff, #a855f7);
+            border: none;
+            padding: 16px;
+            border-radius: 48px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-bottom: 16px;
+        }
+
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        /* Реферальный блок */
+        .referral {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 24px;
+            padding: 20px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .ref-link {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            word-break: break-all;
+            margin-top: 12px;
+        }
+
+        /* Инфо */
+        .info {
+            font-size: 12px;
+            color: #8e9aaf;
+            text-align: center;
+            margin-top: 24px;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .feature {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 20px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .feature-icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .feature-title {
+            font-size: 14px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">DA<span>sistent</span></div>
+            <p style="margin-top: 8px; opacity: 0.7;">Твой личный ассистент в Telegram</p>
+        </div>
+
+        <div class="features">
+            <div class="feature"><div class="feature-icon">📦</div><div class="feature-title">Удалённые</div></div>
+            <div class="feature"><div class="feature-icon">✏️</div><div class="feature-title">Изменённые</div></div>
+            <div class="feature"><div class="feature-icon">👁</div><div class="feature-title">View Once</div></div>
+            <div class="feature"><div class="feature-icon">📤</div><div class="feature-title">Экспорт</div></div>
+        </div>
+
+        <div class="plans">
+            <div class="plan" data-days="7" data-price="50">
+                <div class="plan-name">Неделя</div>
+                <div class="plan-price">50 ⭐</div>
+                <small>~7 ★/день</small>
+            </div>
+            <div class="plan" data-days="30" data-price="150">
+                <div class="plan-name">Месяц</div>
+                <div class="plan-price">150 ⭐</div>
+                <small>~5 ★/день</small>
+            </div>
+            <div class="plan" data-days="365" data-price="550">
+                <div class="plan-name">Год</div>
+                <div class="plan-price">550 ⭐</div>
+                <small>~1.5 ★/день</small>
+            </div>
+        </div>
+
+        <div class="referral">
+            <div>🔒 Реферальная программа</div>
+            <div style="font-size: 12px; margin-top: 8px;">Пригласи друга — получи +7 дней бесплатно</div>
+            <div class="ref-link" id="refLink">Загрузка...</div>
+        </div>
+
+        <button class="btn" id="startBtn">🚀 Приступить к использованию</button>
+
+        <div class="info">
+            🔐 Без оплаты • 7 дней бесплатно • Отмена в любой момент<br>
+            💾 Данные только у тебя
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        let selectedPlan = null;
+
+        // Выбор тарифа
+        document.querySelectorAll('.plan').forEach(plan => {
+            plan.addEventListener('click', () => {
+                document.querySelectorAll('.plan').forEach(p => p.classList.remove('selected'));
+                plan.classList.add('selected');
+                selectedPlan = {
+                    days: plan.dataset.days,
+                    price: plan.dataset.price
+                };
+            });
+        });
+
+        // Загружаем реферальную ссылку
+        fetch('/api/ref/' + tg.initDataUnsafe.user.id)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('refLink').innerText = data.link || 'https://t.me/DAsistentBot';
+            })
+            .catch(() => {
+                document.getElementById('refLink').innerText = 'https://t.me/DAsistentBot';
+            });
+
+        // Кнопка "Приступить"
+        document.getElementById('startBtn').addEventListener('click', () => {
+            tg.sendData(JSON.stringify({
+                action: 'start_bot',
+                plan: selectedPlan,
+                user_id: tg.initDataUnsafe.user.id
+            }));
+            tg.close();
+        });
+    </script>
+</body>
+</html>
