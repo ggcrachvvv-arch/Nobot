@@ -2,11 +2,12 @@ import os
 import sqlite3
 import logging
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 PASSWORD = "86532"
+GITHUB_PAGES_URL = "https://ТВОЙ_АККАУНТ.github.io/ТВОЙ_РЕПОЗИТОРИЙ/index.html"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -56,14 +57,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
               (user.id, user.username, user.first_name, 0))
     conn.commit()
     
-    keyboard = [
-        [InlineKeyboardButton("7", callback_data="7"), InlineKeyboardButton("8", callback_data="8"), InlineKeyboardButton("9", callback_data="9")],
-        [InlineKeyboardButton("4", callback_data="4"), InlineKeyboardButton("5", callback_data="5"), InlineKeyboardButton("6", callback_data="6")],
-        [InlineKeyboardButton("1", callback_data="1"), InlineKeyboardButton("2", callback_data="2"), InlineKeyboardButton("3", callback_data="3")],
-        [InlineKeyboardButton("0", callback_data="0"), InlineKeyboardButton("✅", callback_data="submit"), InlineKeyboardButton("🗑", callback_data="clear")]
-    ]
-    context.user_data['pwd'] = ""
-    await update.message.reply_text("🔐 DAsistent\nВведите пароль:", reply_markup=InlineKeyboardMarkup(keyboard))
+    keyboard = [[InlineKeyboardButton("🚀 Открыть DAsistent", web_app=WebAppInfo(url=GITHUB_PAGES_URL))]]
+    await update.message.reply_text(
+        f"✨ Привет, {user.first_name}!\n\nНажми на кнопку, чтобы открыть мини-приложение и активировать бота.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = update.message.web_app_data.data
+    user_id = update.message.from_user.id
+    
+    if data == "start":
+        # Запрашиваем пароль
+        keyboard = [
+            [InlineKeyboardButton("7", callback_data="7"), InlineKeyboardButton("8", callback_data="8"), InlineKeyboardButton("9", callback_data="9")],
+            [InlineKeyboardButton("4", callback_data="4"), InlineKeyboardButton("5", callback_data="5"), InlineKeyboardButton("6", callback_data="6")],
+            [InlineKeyboardButton("1", callback_data="1"), InlineKeyboardButton("2", callback_data="2"), InlineKeyboardButton("3", callback_data="3")],
+            [InlineKeyboardButton("0", callback_data="0"), InlineKeyboardButton("✅", callback_data="submit"), InlineKeyboardButton("🗑", callback_data="clear")]
+        ]
+        context.user_data['pwd'] = ""
+        await update.message.reply_text("🔐 Введите пароль для активации:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -78,7 +91,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if context.user_data.get('pwd', "") == PASSWORD:
             c.execute('UPDATE users SET is_authorized=1 WHERE user_id=?', (user_id,))
             conn.commit()
-            await q.edit_message_text(f"✅ Добро пожаловать, {q.from_user.first_name}!\n\nБот активирован. Теперь я буду сохранять все сообщения из твоих чатов.")
+            await q.edit_message_text(f"✅ Добро пожаловать, {q.from_user.first_name}!\n\nБот активирован. Теперь я буду сохранять все сообщения из твоих чатов и присылать удалённые.")
         else:
             context.user_data['pwd'] = ""
             await q.edit_message_text("❌ Неверный пароль", reply_markup=q.message.reply_markup)
@@ -108,6 +121,7 @@ async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'/start'), start))
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, webapp_data))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.ALL, handle_message))
     app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
