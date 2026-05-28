@@ -7,6 +7,7 @@ from telegram.ext import Application, MessageHandler, filters, CallbackQueryHand
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
+PASSWORD = "86532"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -14,82 +15,115 @@ conn = sqlite3.Connection('data.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
+    is_authorized INTEGER DEFAULT 0,
     is_connected INTEGER DEFAULT 0
 )''')
 conn.commit()
 
+async def type_effect(message, text, delay=0.1):
+    for i in range(len(text) + 1):
+        try:
+            await message.edit_text(text[:i] + ("█" if i < len(text) else ""))
+        except:
+            pass
+        await asyncio.sleep(delay)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    keyboard = [[InlineKeyboardButton("🔍 Проверить подключение", callback_data="check")]]
-    text = f"""🔐 **Привет, {user.first_name}!**
-
-1️⃣ Добавь меня в «Автоматизация чатов»:
-   Настройки → Автоматизация чатов → Добавить @HeiterszBOT
-
-2️⃣ Нажми кнопку «Проверить подключение»
-
-✅ После успешной проверки я активируюсь."""
+    c.execute('INSERT OR IGNORE INTO users (user_id, is_authorized, is_connected) VALUES (?,?,?)', (user.id, 0, 0))
+    conn.commit()
     
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    keyboard = [
+        [InlineKeyboardButton("7", c="7"), InlineKeyboardButton("8", c="8"), InlineKeyboardButton("9", c="9")],
+        [InlineKeyboardButton("4", c="4"), InlineKeyboardButton("5", c="5"), InlineKeyboardButton("6", c="6")],
+        [InlineKeyboardButton("1", c="1"), InlineKeyboardButton("2", c="2"), InlineKeyboardButton("3", c="3")],
+        [InlineKeyboardButton("0", c="0"), InlineKeyboardButton("✅", c="submit"), InlineKeyboardButton("🗑", c="clear")]
+    ]
+    context.user_data['pwd'] = ""
+    await update.message.reply_text("🔐 Введите пароль для DAsistent:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    user_id = q.from_user.id
+    data = q.data
+    
+    if data == "clear":
+        context.user_data['pwd'] = ""
+        await q.edit_message_text("🔐 Очищено", reply_markup=q.message.reply_markup)
+    elif data == "submit":
+        if context.user_data.get('pwd', "") == PASSWORD:
+            c.execute('UPDATE users SET is_authorized=1 WHERE user_id=?', (user_id,))
+            conn.commit()
+            await q.edit_message_text("✅ Пароль принят!\n\n🔄 Активация...")
+            
+            # Эффект печати DAsistent
+            msg = await q.message.reply_text("")
+            await type_effect(msg, "DAsistent")
+            await asyncio.sleep(0.5)
+            for _ in range(len("DAsistent")):
+                await type_effect(msg, "DAsistent"[:-1] if _ == 0 else "DAsistent"[:len("DAsistent") - _])
+                await asyncio.sleep(0.3)
+            
+            keyboard = [[InlineKeyboardButton("🔍 Проверить подключение", callback_data="check")]]
+            await msg.edit_text("✅ Готово!\n\nТеперь проверь подключение к чатам:", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            context.user_data['pwd'] = ""
+            await q.edit_message_text("❌ Неверный пароль", reply_markup=q.message.reply_markup)
+    else:
+        context.user_data['pwd'] = context.user_data.get('pwd', "") + data
+        stars = "*" * len(context.user_data['pwd'])
+        await q.edit_message_text(f"🔐 Пароль: {stars}", reply_markup=q.message.reply_markup)
 
 async def check_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
+    q = update.callback_query
+    await q.answer()
+    user_id = q.from_user.id
+    
+    msg = await q.edit_message_text("🔄 Проверка подключения...")
+    
+    # Анимация 10 квадратиков
+    for i in range(1, 11):
+        squares = "🟩" * i + "⬜" * (10 - i)
+        await msg.edit_text(f"📡 Проверка: {i*10}%\n{squares}")
+        await asyncio.sleep(0.3)
     
     # Проверяем, есть ли бизнес-подключение
     c.execute('SELECT is_connected FROM users WHERE user_id=?', (user_id,))
     row = c.fetchone()
     
     if row and row[0] == 1:
-        await query.edit_message_text("✅ Бот уже подключён! Всё работает.")
-        return
-    
-    # Показываем анимацию 10 квадратиков
-    msg = await query.edit_message_text("🔄 Проверка подключения...")
-    
-    for i in range(1, 11):
-        percent = i * 10
-        squares = "🟩" * i + "⬜" * (10 - i)
-        await msg.edit_text(f"📡 Проверка: {percent}%\n{squares}")
-        await asyncio.sleep(0.5)
-    
-    # Реальная проверка: пробуем отправить тестовое сообщение через бизнес-API
-    try:
-        # Отправляем тестовое сообщение самому себе через бизнес-чат (если бот подключён)
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="🔔 Тестовое сообщение от бота (если ты его видишь — подключение работает)"
-        )
-        # Если дошли сюда — значит бот может писать
-        c.execute('INSERT OR REPLACE INTO users VALUES (?,?)', (user_id, 1))
-        conn.commit()
-        await msg.edit_text("✅ **Бот успешно подключён и активирован!**\n\nТеперь я буду сохранять все сообщения и присылать удалённые.", parse_mode="Markdown")
-    except Exception as e:
-        await msg.edit_text(f"❌ Бот не подключён к автоматизации чатов.\n\nПожалуйста, добавь @HeiterszBOT в Настройки → Автоматизация чатов.\n\nОшибка: {str(e)[:100]}")
+        await msg.edit_text("✅ **Бот подключён и активирован!**\n\nТеперь я буду сохранять все сообщения из твоих чатов и присылать удалённые.", parse_mode="Markdown")
+    else:
+        await msg.edit_text("❌ **Бот не найден в Автоматизации чатов!**\n\n"
+                            "📌 Инструкция:\n"
+                            "1️⃣ Настройки Telegram\n"
+                            "2️⃣ Автоматизация чатов\n"
+                            "3️⃣ Добавить @HeiterszBOT\n"
+                            "4️⃣ Разрешить «Все личные чаты»\n\n"
+                            "🔄 После добавления нажми «Проверить подключение» снова", parse_mode="Markdown")
 
 async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Когда пользователь подключает бота через Автоматизация чатов"""
     if update.business_connection:
         user_id = update.business_connection.user_id
-        c.execute('INSERT OR REPLACE INTO users VALUES (?,?)', (user_id, 1))
+        c.execute('UPDATE users SET is_connected=1 WHERE user_id=?', (user_id,))
         conn.commit()
         await context.bot.send_message(
             chat_id=user_id,
-            text="✅ **Бот обнаружен в Автоматизации чатов!**\n\nТеперь я буду сохранять сообщения и присылать удалённые."
+            text="✅ **Обнаружено подключение!**\n\nБот успешно добавлен в Автоматизацию чатов. Теперь я вижу все сообщения."
         )
-        logging.info(f"Business connection: {user_id}")
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not hasattr(update, 'deleted_business_messages') or not update.deleted_business_messages:
+    if not update.deleted_business_messages:
         return
     for d in update.deleted_business_messages.messages:
         if ADMIN_ID:
-            await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено сообщение {d.message_id} в чате {d.chat_id}")
+            await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено сообщение {d.message_id}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'/start'), start))
+    app.add_handler(CallbackQueryHandler(button, pattern=r"^\d+$|^submit$|^clear$"))
     app.add_handler(CallbackQueryHandler(check_connection, pattern="check"))
     app.add_handler(MessageHandler(filters.StatusUpdate.BUSINESS_CONNECTION, handle_business_connection))
     app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
