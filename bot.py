@@ -1,17 +1,16 @@
 import os
-import json
 import sqlite3
 import logging
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-YOUR_USER_ID = int(os.environ.get("YOUR_USER_ID", 0))
+YOUR_USER_ID = int(os.environ.get("USER_ID", 0))
 
 logging.basicConfig(level=logging.INFO)
 
-# ========== ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ==========
+# ========== БАЗА ДАННЫХ ==========
 conn = sqlite3.Connection('messages.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
@@ -26,17 +25,14 @@ cursor.execute('''
         content_type TEXT,
         file_id TEXT,
         timestamp TEXT,
-        edited_timestamp TEXT,
-        is_edited INTEGER DEFAULT 0,
         PRIMARY KEY (message_id, chat_id)
     )
 ''')
 conn.commit()
 
-def save_message(update: Update, is_edited=False):
-    """Сохраняет сообщение в базу"""
+def save_message(update: Update):
     msg = update.effective_message
-    if not msg:
+    if not msg or not msg.from_user:
         return
     
     user = msg.from_user
@@ -64,98 +60,79 @@ def save_message(update: Update, is_edited=False):
     
     cursor.execute('''
         INSERT OR REPLACE INTO messages 
-        (message_id, chat_id, user_id, username, first_name, text, caption, content_type, file_id, timestamp, edited_timestamp, is_edited)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (message_id, chat_id, user_id, username, first_name, text, caption, content_type, file_id, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
-        msg.message_id, msg.chat_id, user.id if user else None,
-        user.username if user else None, user.first_name if user else None,
+        msg.message_id, msg.chat_id, user.id, user.username, user.first_name,
         msg.text, caption, content_type, file_id,
-        datetime.now().isoformat(),
-        datetime.now().isoformat() if is_edited else None,
-        1 if is_edited else 0
+        datetime.now().isoformat()
     ))
     conn.commit()
+    logging.info(f"💾 Сохранено: {msg.message_id} от {user.first_name}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка новых сообщений — сохраняем в кеш"""
-    if update.edited_message:
-        save_message(update, is_edited=True)
-        logging.info(f"✏️ Изменено сообщение {update.edited_message.message_id}")
-    elif update.message:
+    if update.message:
         save_message(update)
-        logging.info(f"💾 Сохранено сообщение {update.message.message_id}")
+
+async def handle_edited(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.edited_message
+    if not msg or not msg.from_user:
+        return
+    
+    cursor.execute('SELECT text FROM messages WHERE message_id = ? AND chat_id = ?', (msg.message_id, msg.chat_id))
+    row = cursor.fetchone()
+    old_text = row[0] if row else "(не сохранено)"
+    
+    save_message(update)
+    
+    user = msg.from_user
+    name = f"{user.first_name} (@{user.username})" if user.username else user.first_name
+    
+    text = f"✏️ *{name}* изменил(а) сообщение:\n\n📌 *Было:*\n`{old_text[:500]}`\n\n🆕 *Стало:*\n`{msg.text[:500]}`"
+    
+    await context.bot.send_message(chat_id=YOUR_USER_ID, text=text, parse_mode="Markdown")
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка удалённых сообщений — отправляем сохранённую копию"""
-    if hasattr(update, 'deleted_business_messages') and update.deleted_business_messages:
-        for deleted_msg in update.deleted_business_messages.messages:
-            # Ищем в базе
-            cursor.execute('''
-                SELECT user_id, username, first_name, text, caption, content_type, file_id, is_edited
-                FROM messages WHERE message_id = ? AND chat_id = ?
-            ''', (deleted_msg.message_id, deleted_msg.chat_id))
-            row = cursor.fetchone()
-            
-            if not row:
-                await context.bot.send_message(
-                    chat_id=YOUR_USER_ID,
-                    text=f"❌ Удалено сообщение (не сохранено)\nChat: {deleted_msg.chat_id}\nID: {deleted_msg.message_id}"
-                )
-                return
-            
-            user_id, username, first_name, text, caption, content_type, file_id, is_edited = row
-            name = first_name or username or "Пользователь"
-            
-            # Формируем сообщение
-            prefix = "✏️ ИЗМЕНЕНО" if is_edited else "❌ УДАЛЕНО"
-            
-            if content_type == "text":
-                await context.bot.send_message(
-                    chat_id=YOUR_USER_ID,
-                    text=f"{prefix}\nОт: {name}\nТекст: {text}"
-                )
-            elif content_type == "voice":
-                await context.bot.send_voice(
-                    chat_id=YOUR_USER_ID,
-                    voice=file_id,
-                    caption=f"{prefix} Голосовое от {name}\n{caption or ''}"
-                )
-            elif content_type == "photo":
-                await context.bot.send_photo(
-                    chat_id=YOUR_USER_ID,
-                    photo=file_id,
-                    caption=f"{prefix} Фото от {name}\n{caption or ''}"
-                )
-            elif content_type == "video":
-                await context.bot.send_video(
-                    chat_id=YOUR_USER_ID,
-                    video=file_id,
-                    caption=f"{prefix} Видео от {name}\n{caption or ''}"
-                )
-            elif content_type == "audio":
-                await context.bot.send_audio(
-                    chat_id=YOUR_USER_ID,
-                    audio=file_id,
-                    caption=f"{prefix} Аудио от {name}\n{caption or ''}"
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=YOUR_USER_ID,
-                    text=f"{prefix}\nОт: {name}\nТип: {content_type}\n{caption or text or ''}"
-                )
-            
-            logging.info(f"Отправлено уведомление об удалении {deleted_msg.message_id}")
+    if not hasattr(update, 'deleted_business_messages') or not update.deleted_business_messages:
+        return
+    
+    for msg in update.deleted_business_messages.messages:
+        cursor.execute('SELECT user_id, username, first_name, text, caption, content_type, file_id FROM messages WHERE message_id = ? AND chat_id = ?', (msg.message_id, msg.chat_id))
+        row = cursor.fetchone()
+        
+        if not row:
+            await context.bot.send_message(chat_id=YOUR_USER_ID, text=f"❌ Удалено сообщение (не сохранено)\nChat: {msg.chat_id}\nID: {msg.message_id}")
+            continue
+        
+        user_id, username, first_name, text, caption, content_type, file_id = row
+        name = f"{first_name} (@{username})" if username else first_name
+        
+        if content_type == "text":
+            emoji = "📝"
+            await context.bot.send_message(chat_id=YOUR_USER_ID, text=f"{emoji} {name} удалил(а) сообщение:\n\n{text[:500]}")
+        elif content_type == "voice":
+            emoji = "🎤"
+            await context.bot.send_voice(chat_id=YOUR_USER_ID, voice=file_id, caption=f"{emoji} {name} удалил(а) голосовое:\n{caption or ''}")
+        elif content_type == "photo":
+            emoji = "📷"
+            await context.bot.send_photo(chat_id=YOUR_USER_ID, photo=file_id, caption=f"{emoji} {name} удалил(а) фото:\n{caption or ''}")
+        elif content_type == "video":
+            emoji = "🎥"
+            await context.bot.send_video(chat_id=YOUR_USER_ID, video=file_id, caption=f"{emoji} {name} удалил(а) видео:\n{caption or ''}")
+        else:
+            emoji = "📄"
+            await context.bot.send_message(chat_id=YOUR_USER_ID, text=f"{emoji} {name} удалил(а) сообщение:\n{content_type}\n{caption or text or ''}")
+        
+        logging.info(f"📤 Отправлено удаление: {msg.message_id} от {name}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Сохраняем все сообщения
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
-    
-    # Обрабатываем удаления (через бизнес-обновления)
+    app.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE, handle_edited))
     app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
     
-    logging.info("Бот запущен. Кеширование сообщений включено.")
+    logging.info("Бот запущен")
     app.run_polling()
 
 if __name__ == "__main__":
