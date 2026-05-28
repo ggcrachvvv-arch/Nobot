@@ -18,7 +18,6 @@ jobs:
       - name: Run main bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          REF_BOT_TOKEN: ${{ secrets.REF_BOT_TOKEN }}
         run: python bot.py
 
   ref-bot:
