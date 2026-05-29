@@ -31,7 +31,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 1️⃣ Включи **Secretary Mode** в BotFather
 2️⃣ Подключи бота в **Настройки → Автоматизация чатов**
-3️⃣ Нажми кнопку ниже
+3️⃣ **Вернись сюда** и нажми кнопку ниже
 
 ✅ После проверки бот активируется."""
     
@@ -51,19 +51,25 @@ async def check_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"📡 Проверка: {percent}%\n{squares}")
         await asyncio.sleep(0.3)
     
-    # Проверяем в базе, было ли событие BusinessConnection
-    c.execute('SELECT is_connected FROM users WHERE user_id=?', (user_id,))
-    row = c.fetchone()
-    
-    if row and row[0] == 1:
+    # Пытаемся отправить тестовое сообщение через бизнес-чат
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="🔔 Тестовое сообщение от бота (если ты его видишь — подключение работает)"
+        )
+        # Если дошли сюда — бот подключён
+        c.execute('INSERT OR REPLACE INTO users VALUES (?,?)', (user_id, 1))
+        conn.commit()
         await msg.edit_text(
             "✅ **Бот активирован!**\n\n"
-            "Теперь я буду сохранять все сообщения и присылать удалённые.",
+            "Теперь я буду сохранять все сообщения из твоих чатов и присылать удалённые.\n\n"
+            "⚠️ Для отслеживания удалений нужен Telegram Premium (он у тебя есть).",
             parse_mode="Markdown"
         )
-    else:
+    except Exception as e:
         await msg.edit_text(
-            "❌ **Бот не найден в Автоматизации чатов!**\n\n"
+            f"❌ **Бот не подключён к чатам!**\n\n"
+            f"Ошибка: {str(e)[:100]}\n\n"
             "📌 Инструкция:\n"
             "1️⃣ Настройки Telegram\n"
             "2️⃣ Автоматизация чатов\n"
@@ -73,27 +79,6 @@ async def check_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Проверить снова", callback_data="check")]])
         )
-
-async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик события BusinessConnection (бот подключён к чатам)"""
-    if update.business_connection:
-        user_id = update.business_connection.user_id
-        can_reply = update.business_connection.can_reply
-        
-        # Сохраняем в базу, что пользователь подключил бота
-        c.execute('INSERT OR REPLACE INTO users VALUES (?,?)', (user_id, 1))
-        conn.commit()
-        
-        # Отправляем приветствие
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="✅ **Бот подключён к твоим чатам!**\n\n"
-                 "Теперь я буду сохранять все сообщения и присылать удалённые.\n\n"
-                 f"📝 Могу отвечать: {'Да' if can_reply else 'Нет'}",
-            parse_mode="Markdown"
-        )
-        
-        logging.info(f"BusinessConnection: user {user_id} подключил бота, can_reply={can_reply}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text and update.message.from_user:
@@ -105,7 +90,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                       (update.message.message_id, update.message.chat_id, user_id,
                        update.message.text, datetime.now().isoformat()))
             conn.commit()
-            logging.info(f"Сохранено от {user_id}: {update.message.text[:30]}")
+            logging.info(f"Сохранено: {update.message.text[:30]}")
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if hasattr(update, 'deleted_business_messages') and update.deleted_business_messages:
@@ -120,11 +105,10 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'/start'), start))
     app.add_handler(CallbackQueryHandler(check_connection, pattern="check"))
-    app.add_handler(MessageHandler(filters.StatusUpdate.BUSINESS_CONNECTION, handle_business_connection))
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
     app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
     
-    logging.info("Бот запущен с поддержкой BusinessConnection")
+    logging.info("Бот запущен")
     app.run_polling()
 
 if __name__ == "__main__":
