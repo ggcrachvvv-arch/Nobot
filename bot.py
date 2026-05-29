@@ -44,14 +44,14 @@ async def check_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     msg = await query.edit_message_text("🔄 Проверка подключения...")
     
-    # Анимация 10 квадратиков (каждый 0.3 секунды)
+    # Анимация 10 квадратиков
     for i in range(1, 11):
         percent = i * 10
         squares = "🟩" * i + "⬜" * (10 - i)
         await msg.edit_text(f"📡 Проверка: {percent}%\n{squares}")
         await asyncio.sleep(0.3)
     
-    # Проверяем подключение
+    # Проверяем в базе, было ли событие BusinessConnection
     c.execute('SELECT is_connected FROM users WHERE user_id=?', (user_id,))
     row = c.fetchone()
     
@@ -75,14 +75,25 @@ async def check_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик события BusinessConnection (бот подключён к чатам)"""
     if update.business_connection:
         user_id = update.business_connection.user_id
+        can_reply = update.business_connection.can_reply
+        
+        # Сохраняем в базу, что пользователь подключил бота
         c.execute('INSERT OR REPLACE INTO users VALUES (?,?)', (user_id, 1))
         conn.commit()
+        
+        # Отправляем приветствие
         await context.bot.send_message(
             chat_id=user_id,
-            text="✅ **Бот подключён к чатам!**\n\nТеперь я вижу все сообщения."
+            text="✅ **Бот подключён к твоим чатам!**\n\n"
+                 "Теперь я буду сохранять все сообщения и присылать удалённые.\n\n"
+                 f"📝 Могу отвечать: {'Да' if can_reply else 'Нет'}",
+            parse_mode="Markdown"
         )
+        
+        logging.info(f"BusinessConnection: user {user_id} подключил бота, can_reply={can_reply}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text and update.message.from_user:
@@ -94,6 +105,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                       (update.message.message_id, update.message.chat_id, user_id,
                        update.message.text, datetime.now().isoformat()))
             conn.commit()
+            logging.info(f"Сохранено от {user_id}: {update.message.text[:30]}")
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if hasattr(update, 'deleted_business_messages') and update.deleted_business_messages:
@@ -102,6 +114,7 @@ async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row = c.fetchone()
             if row and ADMIN_ID:
                 await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено: {row[0]}")
+                logging.info(f"Удаление: {d.message_id}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -111,7 +124,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
     app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
     
-    logging.info("Бот запущен")
+    logging.info("Бот запущен с поддержкой BusinessConnection")
     app.run_polling()
 
 if __name__ == "__main__":
